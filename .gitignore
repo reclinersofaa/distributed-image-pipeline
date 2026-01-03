@@ -1,0 +1,10 @@
+data/input/
+data/output/
+
+image_utils/__pycache__/
+master/__pycache__/
+worker/__pycache__/
+
+test-c-a.py
+test-serialization.py
+

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Distributed Image Processing</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Distributed Image Processing Dashboard</h1>
+
+    <div class="card">
+        <h2>Upload Image (Upload = Job)</h2>
+
+        <input type="file" id="imageInput"><br><br>
+
+        <select id="operation">
+            <option value="grayscale">Grayscale</option>
+            <option value="blur">Blur</option>
+            <option value="edge">Edge Detection</option>
+        </select>
+
+        <p class="hint">
+            Selecting an image immediately starts a job.
+        </p>
+    </div>
+
+    <div id="jobs"></div>
+</div>
+
+<script>
+async function handleUpload() {
+    const fileInput = document.getElementById("imageInput");
+    const operation = document.getElementById("operation").value;
+
+    if (!fileInput.files.length) return;
+
+    const file = fileInput.files[0];
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(`/upload?operation=${operation}`, {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+    const jobId = data.job_id;
+
+    addJobCard(jobId, file.name, operation);
+    pollStatus(jobId);
+
+    // IMPORTANT: reset input so user can select another image
+    fileInput.value = "";
+}
+
+function addJobCard(jobId, filename, operation) {
+    const jobsDiv = document.getElementById("jobs");
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.id = `job-${jobId}`;
+
+    card.innerHTML = `
+        <h3>Job ${jobId.slice(0, 8)}</h3>
+        <p><b>File:</b> ${filename}</p>
+        <p><b>Operation:</b> ${operation}</p>
+        <p id="status-${jobId}">Status: processing</p>
+        <img id="img-${jobId}" class="hidden" />
+    `;
+
+    jobsDiv.prepend(card);
+}
+
+async function pollStatus(jobId) {
+    const interval = setInterval(async () => {
+        const res = await fetch(`/status/${jobId}`);
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const statusEl = document.getElementById(`status-${jobId}`);
+
+        if (!statusEl) {
+            clearInterval(interval);
+            return;
+        }
+
+        statusEl.innerText = `Status: ${data.status}`;
+
+        if (data.status === "completed") {
+            clearInterval(interval);
+            showResult(jobId);
+        }
+    }, 1000);
+}
+
+function showResult(jobId) {
+    const img = document.getElementById(`img-${jobId}`);
+    img.src = `/result/${jobId}?t=${Date.now()}`;
+    img.classList.remove("hidden");
+}
+
+// Upload immediately when file is selected
+document
+    .getElementById("imageInput")
+    .addEventListener("change", handleUpload);
+</script>
+</body>
+</html>
