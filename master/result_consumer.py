@@ -1,6 +1,11 @@
 from confluent_kafka import Consumer
 import json
 import threading
+JOB_WORKERS = {}
+JOB_TILE_TIMES = {}
+from collections import deque
+import time
+TILE_COMPLETION_TIMES = deque(maxlen=5000)
 
 
 class ResultConsumer:
@@ -8,7 +13,7 @@ class ResultConsumer:
         self.consumer = Consumer({
             "bootstrap.servers": broker,
             "group.id": "master-result-consumer",
-            "auto.offset.reset": "earliest"
+            "auto.offset.reset": "latest"
         })
 
         self.consumer.subscribe(["image_results"])
@@ -16,11 +21,10 @@ class ResultConsumer:
         self.results = {}
         self.lock = threading.Lock()
 
-        self.thread = threading.Thread(
+        threading.Thread(
             target=self._consume_loop,
             daemon=True
-        )
-        self.thread.start()
+        ).start()
 
     def _consume_loop(self):
         while True:
@@ -29,13 +33,27 @@ class ResultConsumer:
                 continue
 
             data = json.loads(msg.value().decode("utf-8"))
-            image_id = data["image_id"]
+            TILE_COMPLETION_TIMES.append(time.time())
+
+            job_id = data["job_id"]   
+
+            worker_id = data.get("worker_id")
+            tile_time = data.get("tile_time_ms")
 
             with self.lock:
-                if image_id not in self.results:
-                    self.results[image_id] = []
-                self.results[image_id].append(data)
+                if job_id not in self.results:
+                    self.results[job_id] = []
+                    JOB_WORKERS[job_id] = set()
+                    JOB_TILE_TIMES[job_id] = []
 
-    def get_results(self, image_id):
+                self.results[job_id].append(data)
+
+                if worker_id:
+                    JOB_WORKERS[job_id].add(worker_id)
+
+                if tile_time is not None:
+                    JOB_TILE_TIMES[job_id].append(tile_time)
+
+    def get_results(self, job_id):
         with self.lock:
-            return list(self.results.get(image_id, []))
+            return list(self.results.get(job_id, []))

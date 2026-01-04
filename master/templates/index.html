@@ -67,6 +67,22 @@
 <body>
 <div class="container">
     <h1>Distributed Image Processing Dashboard</h1>
+    <!-- Metrics -->
+    <div class="card metrics-card">
+        <div class="metrics-row">
+            <div>
+                <b>Jobs</b>:
+                <span id="metric-active">0</span> active |
+                <span id="metric-completed">0</span> completed
+            </div>
+            <div>
+                <b>Workers</b>:
+                <span id="metric-workers">0</span> total |
+                <span id="metric-busy">0</span> busy |
+                <span id="metric-idle">0</span> idle
+            </div>
+        </div>
+    </div>
 
     <!-- Stage -->
     <div class="card">
@@ -111,6 +127,14 @@
         </h2>
         <div id="completedJobs" class="completed-container hidden"></div>
     </div>
+
+    <div class="metrics-row small">
+        Throughput:
+        <span id="metric-throughput">0</span> tiles/sec |
+        Avg job time:
+        <span id="metric-jobtime">0</span>s
+    </div>
+
 </div>
 
 <script>
@@ -226,6 +250,40 @@ function updateCounts() {
     runningCount.innerText = runningJobs.children.length;
     completedCount.innerText = completedJobs.children.length;
 }
+
+async function pollMetrics() {
+    try {
+        const res = await fetch("/metrics");
+        if (!res.ok) return;
+
+        const data = await res.json();
+
+        // Jobs
+        document.getElementById("metric-active").innerText = data.jobs.active;
+        document.getElementById("metric-completed").innerText = data.jobs.completed;
+
+        // Workers
+        document.getElementById("metric-workers").innerText = data.workers.total;
+        document.getElementById("metric-busy").innerText = data.workers.busy;
+        document.getElementById("metric-idle").innerText = data.workers.idle;
+
+        if (data.performance) {
+            document.getElementById("metric-throughput").innerText =
+                data.performance.tiles_per_sec;
+
+            document.getElementById("metric-jobtime").innerText =
+                data.performance.avg_job_time_sec;
+        }
+
+    } catch (e) {
+        console.warn("Metrics fetch failed");
+    }
+}
+
+// Poll every 2 seconds
+setInterval(pollMetrics, 2000);
+pollMetrics();
+
 </script>
 </body>
 </html>

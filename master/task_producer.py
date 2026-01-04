@@ -11,9 +11,9 @@ class TaskProducer:
             "bootstrap.servers": broker
         })
 
-    def send_tile(self, image_id, tile, operation):
+    def send_tile(self, job_id, tile, operation):
         message = {
-            "image_id": image_id,
+            "job_id": job_id,   
             "tile_id": tile["tile_id"],
             "position": tile["position"],
             "operation": operation,

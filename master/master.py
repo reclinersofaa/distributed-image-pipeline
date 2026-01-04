@@ -15,6 +15,10 @@ from master.result_consumer import ResultConsumer
 # -----------------------------
 
 JOB_STATUS = {}
+JOB_START_TIME = {}
+JOB_END_TIME = {}
+JOB_WORKERS = {}
+JOB_TILE_TIMES = {}
 
 # ONE long-lived Kafka result consumer
 RESULT_CONSUMER = ResultConsumer()
@@ -69,6 +73,7 @@ def run_master(image_path, operation, job_id):
         final_image.save(output_path)
 
         JOB_STATUS[job_id] = "completed"
+        JOB_END_TIME[job_id] = time.time()
         print(f"[MASTER] Job {job_id} completed")
 
     except Exception as e:
@@ -80,8 +85,12 @@ def start_job(image_path, operation, job_id):
     """
     Starts a job using a PRE-CREATED job_id.
     """
+    print(f"[MASTER] start_job called for {job_id}")
 
     JOB_STATUS[job_id] = "processing"
+    JOB_START_TIME[job_id] = time.time()
+    JOB_WORKERS[job_id] = set()
+    JOB_TILE_TIMES[job_id] = []
 
     thread = threading.Thread(
         target=run_master,

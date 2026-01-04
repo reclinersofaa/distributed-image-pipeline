@@ -2,15 +2,20 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from master.worker_metrics import start_worker_metrics, get_worker_snapshot
 
 import os
 import shutil
 import uuid
 
-from master.master import start_job, JOB_STATUS
+from master.master import start_job, JOB_STATUS, JOB_END_TIME, JOB_START_TIME, JOB_TILE_TIMES
 
 
 app = FastAPI(title="Distributed Image Processing")
+
+@app.on_event("startup")
+def startup_event():
+    start_worker_metrics()
 
 templates = Jinja2Templates(directory="master/templates")
 app.mount("/static", StaticFiles(directory="master/static"), name="static")
@@ -85,3 +90,84 @@ def get_result(job_id: str):
         raise HTTPException(status_code=404, detail="Result not found")
 
     return FileResponse(output_path, media_type="image/png")
+
+@app.get("/metrics")
+def metrics():
+    # ---- Worker metrics ----
+    workers = get_worker_snapshot()
+
+    total_workers = len(workers)
+    busy_workers = sum(1 for w in workers if w["state"] == "busy")
+    idle_workers = total_workers - busy_workers
+
+    # ---- Job metrics ----
+    active_jobs = sum(
+        1 for status in JOB_STATUS.values()
+        if status == "processing"
+    )
+
+    completed_jobs = sum(
+        1 for status in JOB_STATUS.values()
+        if status == "completed"
+    )
+
+    # ---- Job performance ----
+    completed_job_times = [
+        JOB_END_TIME[j] - JOB_START_TIME[j]
+        for j in JOB_END_TIME
+    ]
+
+    avg_job_time = (
+        sum(completed_job_times) / len(completed_job_times)
+        if completed_job_times else 0
+    )
+
+    # ---- Tile performance ----
+    all_tile_times = [
+        t for times in JOB_TILE_TIMES.values()
+        for t in times
+    ]
+
+    avg_tile_time_ms = (
+        sum(all_tile_times) / len(all_tile_times)
+        if all_tile_times else 0
+    )
+
+    total_tiles = len(all_tile_times)
+    job_durations = [
+        JOB_END_TIME[j] - JOB_START_TIME[j]
+        for j in JOB_END_TIME
+        if j in JOB_START_TIME
+    ]
+
+    total_runtime = sum(job_durations)
+
+    tiles_per_sec = (
+        total_tiles / total_runtime
+        if total_runtime > 0 else 0
+    )
+
+    utilization = (
+        busy_workers / total_workers
+        if total_workers else 0
+    )
+
+
+    return {
+        "jobs": {
+            "active": active_jobs,
+            "completed": completed_jobs
+        },
+        "workers": {
+            "total": total_workers,
+            "busy": busy_workers,
+            "idle": idle_workers,
+            "details": workers
+        },
+        "performance": {
+            "avg_job_time_sec": round(avg_job_time, 2),
+            "avg_tile_time_ms": round(avg_tile_time_ms, 2),
+            "tiles_per_sec": round(tiles_per_sec, 2)
+        },
+        "utilization": round(utilization, 2)
+    }

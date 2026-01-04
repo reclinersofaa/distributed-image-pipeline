@@ -47,3 +47,15 @@ img {
 .hidden {
     display: none;
 }
+
+.metrics-card {
+    padding: 12px 16px;
+    background: #020617;
+}
+
+.metrics-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: #e5e7eb;
+}
