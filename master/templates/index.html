@@ -3,108 +3,229 @@
 <head>
     <title>Distributed Image Processing</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .stage-container,
+        .completed-container {
+            max-height: 260px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 8px;
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f7f7f7;
+            position: sticky;
+            top: 0;
+        }
+
+        .btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-toggle {
+            background: #e9e9e9;
+            color: #333;
+        }
+
+        .job-card {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .thumb {
+            max-width: 120px;
+            display: block;
+            margin-top: 6px;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
+
 <body>
 <div class="container">
     <h1>Distributed Image Processing Dashboard</h1>
 
+    <!-- Stage -->
     <div class="card">
-        <h2>Upload Image (Upload = Job)</h2>
-
-        <input type="file" id="imageInput"><br><br>
-
-        <select id="operation">
-            <option value="grayscale">Grayscale</option>
-            <option value="blur">Blur</option>
-            <option value="edge">Edge Detection</option>
-        </select>
-
+        <h2>Stage Images</h2>
+        <input type="file" id="imageInput" multiple>
         <p class="hint">
-            Selecting an image immediately starts a job.
+            Upload images, choose operations, then start all jobs together.
         </p>
     </div>
 
-    <div id="jobs"></div>
+    <div class="card">
+        <h2>Staged Jobs</h2>
+        <div class="stage-container">
+            <table>
+                <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Operation</th>
+                    <th>Remove</th>
+                </tr>
+                </thead>
+                <tbody id="stagedTable"></tbody>
+            </table>
+        </div>
+        <br>
+        <button class="btn btn-primary" onclick="startAllJobs()">
+            Start Processing All Jobs
+        </button>
+    </div>
+
+    <!-- Running Jobs -->
+    <div class="card">
+        <h2>Running Jobs (<span id="runningCount">0</span>)</h2>
+        <div id="runningJobs"></div>
+    </div>
+
+    <!-- Completed Jobs -->
+    <div class="card">
+        <h2>
+            Completed Jobs (<span id="completedCount">0</span>)
+            <button class="btn btn-toggle" onclick="toggleCompleted()">Toggle</button>
+        </h2>
+        <div id="completedJobs" class="completed-container hidden"></div>
+    </div>
 </div>
 
 <script>
-async function handleUpload() {
-    const fileInput = document.getElementById("imageInput");
-    const operation = document.getElementById("operation").value;
+let stagedJobs = [];
+let completedVisible = false;
 
-    if (!fileInput.files.length) return;
+// ---------- STAGING ----------
+document.getElementById("imageInput").addEventListener("change", () => {
+    const files = Array.from(imageInput.files);
+    for (const file of files) {
+        stagedJobs.push({ file, operation: "grayscale" });
+    }
+    imageInput.value = "";
+    renderStagedJobs();
+});
 
-    const file = fileInput.files[0];
+function renderStagedJobs() {
+    const tbody = document.getElementById("stagedTable");
+    tbody.innerHTML = "";
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const res = await fetch(`/upload?operation=${operation}`, {
-        method: "POST",
-        body: formData
+    stagedJobs.forEach((job, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td>${job.file.name}</td>
+            <td>
+                <select onchange="stagedJobs[${i}].operation=this.value">
+                    <option value="grayscale">Grayscale</option>
+                    <option value="blur">Blur</option>
+                    <option value="edge">Edge</option>
+                </select>
+            </td>
+            <td>
+                <button class="btn" onclick="stagedJobs.splice(${i},1);renderStagedJobs()">X</button>
+            </td>
+        `;
+        tbody.appendChild(row);
     });
-
-    const data = await res.json();
-    const jobId = data.job_id;
-
-    addJobCard(jobId, file.name, operation);
-    pollStatus(jobId);
-
-    // IMPORTANT: reset input so user can select another image
-    fileInput.value = "";
 }
 
-function addJobCard(jobId, filename, operation) {
-    const jobsDiv = document.getElementById("jobs");
+// ---------- SUBMIT ----------
+function startAllJobs() {
+    stagedJobs.forEach(job => submitJob(job.file, job.operation));
+    stagedJobs = [];
+    renderStagedJobs();
+}
 
-    const card = document.createElement("div");
-    card.className = "card";
-    card.id = `job-${jobId}`;
+// ---------- JOBS ----------
+function submitJob(file, operation) {
+    const fd = new FormData();
+    fd.append("file", file);
 
-    card.innerHTML = `
-        <h3>Job ${jobId.slice(0, 8)}</h3>
-        <p><b>File:</b> ${filename}</p>
-        <p><b>Operation:</b> ${operation}</p>
-        <p id="status-${jobId}">Status: processing</p>
-        <img id="img-${jobId}" class="hidden" />
+    fetch(`/upload?operation=${operation}`, {
+        method: "POST",
+        body: fd
+    })
+    .then(res => res.json())
+    .then(data => {
+        addRunningJob(data.job_id, file.name, operation);
+        pollStatus(data.job_id);
+    });
+}
+
+function addRunningJob(jobId, filename, operation) {
+    const div = document.createElement("div");
+    div.className = "job-card";
+    div.id = `job-${jobId}`;
+    div.innerHTML = `
+        <b>${filename}</b> (${operation})<br>
+        <span id="status-${jobId}">processing</span>
     `;
-
-    jobsDiv.prepend(card);
+    runningJobs.prepend(div);
+    updateCounts();
 }
 
-async function pollStatus(jobId) {
+function pollStatus(jobId) {
     const interval = setInterval(async () => {
         const res = await fetch(`/status/${jobId}`);
-
         if (!res.ok) return;
-
         const data = await res.json();
+
         const statusEl = document.getElementById(`status-${jobId}`);
+        if (!statusEl) return;
 
-        if (!statusEl) {
-            clearInterval(interval);
-            return;
-        }
-
-        statusEl.innerText = `Status: ${data.status}`;
+        statusEl.innerText = data.status;
 
         if (data.status === "completed") {
             clearInterval(interval);
-            showResult(jobId);
+            moveToCompleted(jobId);
         }
     }, 1000);
 }
 
-function showResult(jobId) {
-    const img = document.getElementById(`img-${jobId}`);
-    img.src = `/result/${jobId}?t=${Date.now()}`;
-    img.classList.remove("hidden");
+function moveToCompleted(jobId) {
+    const card = document.getElementById(`job-${jobId}`);
+    card.remove();
+
+    const div = document.createElement("div");
+    div.className = "job-card";
+    div.innerHTML = `
+        Job ${jobId.slice(0,8)}
+        <img class="thumb" src="/result/${jobId}?t=${Date.now()}">
+    `;
+    completedJobs.prepend(div);
+    updateCounts();
 }
 
-// Upload immediately when file is selected
-document
-    .getElementById("imageInput")
-    .addEventListener("change", handleUpload);
+function toggleCompleted() {
+    completedVisible = !completedVisible;
+    completedJobs.classList.toggle("hidden", !completedVisible);
+}
+
+function updateCounts() {
+    runningCount.innerText = runningJobs.children.length;
+    completedCount.innerText = completedJobs.children.length;
+}
 </script>
 </body>
 </html>
