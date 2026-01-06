@@ -128,11 +128,21 @@
         <div id="completedJobs" class="completed-container hidden"></div>
     </div>
 
-    <div class="metrics-row small">
-        Throughput:
-        <span id="metric-throughput">0</span> tiles/sec |
-        Avg job time:
-        <span id="metric-jobtime">0</span>s
+    <div class="card" style="padding: 12px 16px; background: #020617;">
+        <div style="font-size: 14px; color: #e5e7eb;">
+            <b>System Performance</b>
+        </div>
+        <div style="font-size: 13px; color: #94a3b8; margin-top: 6px; line-height: 1.8;">
+            <div>
+                <b style="color: #e5e7eb;">Live Throughput:</b> 
+                <span id="metric-throughput">0</span> tiles/sec 
+                <span style="font-size: 11px; opacity: 0.7;">(5-second window across all workers)</span>
+            </div>
+            <div>
+                <b style="color: #e5e7eb;">Avg Job Time:</b> 
+                <span id="metric-jobtime">0</span>s
+            </div>
+        </div>
     </div>
 
 </div>
@@ -222,19 +232,39 @@ function pollStatus(jobId) {
 
         if (data.status === "completed") {
             clearInterval(interval);
-            moveToCompleted(jobId);
+            await moveToCompleted(jobId);
         }
     }, 1000);
 }
 
-function moveToCompleted(jobId) {
+async function moveToCompleted(jobId) {
     const card = document.getElementById(`job-${jobId}`);
     card.remove();
+
+    // Fetch detailed metrics for this job
+    const metricsRes = await fetch("/metrics");
+    const metricsData = await metricsRes.json();
+    
+    const jobDetails = metricsData.jobs.details.find(j => j.job_id === jobId);
+    
+    let workerInfo = "";
+    if (jobDetails && jobDetails.workers) {
+        const workerEntries = Object.entries(jobDetails.workers);
+        const throughput = (jobDetails.tiles / jobDetails.duration_sec).toFixed(1);
+        workerInfo = `
+            <div style="font-size: 11px; margin-top: 8px; padding: 8px; background: #020617; border-radius: 4px; color: #94a3b8; line-height: 1.8;">
+                <div><b style="color: #e5e7eb;">Duration:</b> ${jobDetails.duration_sec}s | <b style="color: #e5e7eb;">Tiles:</b> ${jobDetails.tiles} | <b style="color: #e5e7eb;">Throughput:</b> ${throughput} tiles/s</div>
+                <div><b style="color: #e5e7eb;">Avg tile time:</b> ${jobDetails.avg_tile_time_ms}ms</div>
+                <div><b style="color: #e5e7eb;">Workers:</b> ${workerEntries.map(([w, count]) => `${w}: ${count} tiles`).join(", ")}</div>
+            </div>
+        `;
+    }
 
     const div = document.createElement("div");
     div.className = "job-card";
     div.innerHTML = `
-        Job ${jobId.slice(0,8)}
+        <b>Job ${jobId.slice(0,8)}</b>
+        ${workerInfo}
         <img class="thumb" src="/result/${jobId}?t=${Date.now()}">
     `;
     completedJobs.prepend(div);

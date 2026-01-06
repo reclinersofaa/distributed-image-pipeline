@@ -1,10 +1,12 @@
 from confluent_kafka import Consumer
 import json
 import threading
+from collections import defaultdict, deque
+import time
+
 JOB_WORKERS = {}
 JOB_TILE_TIMES = {}
-from collections import deque
-import time
+JOB_WORKER_TILE_COUNT = {}  # {job_id: {worker_id: count}}
 TILE_COMPLETION_TIMES = deque(maxlen=5000)
 
 
@@ -45,11 +47,13 @@ class ResultConsumer:
                     self.results[job_id] = []
                     JOB_WORKERS[job_id] = set()
                     JOB_TILE_TIMES[job_id] = []
+                    JOB_WORKER_TILE_COUNT[job_id] = defaultdict(int)
 
                 self.results[job_id].append(data)
 
                 if worker_id:
                     JOB_WORKERS[job_id].add(worker_id)
+                    JOB_WORKER_TILE_COUNT[job_id][worker_id] += 1
 
                 if tile_time is not None:
                     JOB_TILE_TIMES[job_id].append(tile_time)

@@ -59,3 +59,17 @@ img {
     font-size: 14px;
     color: #e5e7eb;
 }
+
+.job-details {
+    font-size: 12px;
+    margin-top: 8px;
+    padding: 8px;
+    background: #020617;
+    border-radius: 4px;
+    color: #94a3b8;
+    line-height: 1.6;
+}
+
+.job-details b {
+    color: #e5e7eb;
+}

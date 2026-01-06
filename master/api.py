@@ -3,12 +3,14 @@ from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from master.worker_metrics import start_worker_metrics, get_worker_snapshot
+from master.result_consumer import TILE_COMPLETION_TIMES, JOB_WORKERS, JOB_WORKER_TILE_COUNT, JOB_TILE_TIMES
 
 import os
 import shutil
 import uuid
+import time
 
-from master.master import start_job, JOB_STATUS, JOB_END_TIME, JOB_START_TIME, JOB_TILE_TIMES
+from master.master import start_job, JOB_STATUS, JOB_END_TIME, JOB_START_TIME
 
 
 app = FastAPI(title="Distributed Image Processing")
@@ -122,30 +124,29 @@ def metrics():
         if completed_job_times else 0
     )
 
-    # ---- Tile performance ----
-    all_tile_times = [
-        t for times in JOB_TILE_TIMES.values()
-        for t in times
-    ]
+    # ---- Sliding window throughput ----
+    WINDOW = 5  # seconds
+    now = time.time()
+    tiles_last_window = [t for t in TILE_COMPLETION_TIMES if now - t <= WINDOW]
+    tiles_per_sec = len(tiles_last_window) / WINDOW if WINDOW > 0 else 0
 
-    avg_tile_time_ms = (
-        sum(all_tile_times) / len(all_tile_times)
-        if all_tile_times else 0
-    )
-
-    total_tiles = len(all_tile_times)
-    job_durations = [
-        JOB_END_TIME[j] - JOB_START_TIME[j]
-        for j in JOB_END_TIME
-        if j in JOB_START_TIME
-    ]
-
-    total_runtime = sum(job_durations)
-
-    tiles_per_sec = (
-        total_tiles / total_runtime
-        if total_runtime > 0 else 0
-    )
+    # ---- Per-job details ----
+    job_details = []
+    for job_id in JOB_END_TIME:
+        if job_id in JOB_START_TIME:
+            duration = JOB_END_TIME[job_id] - JOB_START_TIME[job_id]
+            tile_times = JOB_TILE_TIMES.get(job_id, [])
+            avg_tile_time = sum(tile_times) / len(tile_times) if tile_times else 0
+            
+            worker_contributions = dict(JOB_WORKER_TILE_COUNT.get(job_id, {}))
+            
+            job_details.append({
+                "job_id": job_id,
+                "duration_sec": round(duration, 2),
+                "tiles": len(tile_times),
+                "workers": worker_contributions,
+                "avg_tile_time_ms": round(avg_tile_time, 2)
+            })
 
     utilization = (
         busy_workers / total_workers
@@ -156,7 +157,8 @@ def metrics():
     return {
         "jobs": {
             "active": active_jobs,
-            "completed": completed_jobs
+            "completed": completed_jobs,
+            "details": job_details
         },
         "workers": {
             "total": total_workers,
@@ -166,7 +168,6 @@ def metrics():
         },
         "performance": {
             "avg_job_time_sec": round(avg_job_time, 2),
-            "avg_tile_time_ms": round(avg_tile_time_ms, 2),
             "tiles_per_sec": round(tiles_per_sec, 2)
         },
         "utilization": round(utilization, 2)
